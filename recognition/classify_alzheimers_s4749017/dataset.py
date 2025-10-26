@@ -35,7 +35,7 @@ test_set = datasets.ImageFolder(TEST_DIR, transforms = evaluate_tfms)
 #Random 80/20 split
 val_ratio = 0.2
 n_total = len(train_full)
-c_val = int(n_total * val_ratio)
+n_val = int(n_total * val_ratio)
 n_train = n_total - n_val
 g = torch.Generator().manual_seed(42)
 train_set, val_set = random_split(train_full, [n_train, n_val], generator=g)
