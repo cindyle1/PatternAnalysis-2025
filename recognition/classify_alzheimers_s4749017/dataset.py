@@ -30,7 +30,7 @@ evaluate_tfms = transforms.Compose([
 
 #DATASETS
 train_full = datasets.ImageFolder(TRAIN_DIR, transform = train_tfms)
-train_set = datasets.ImageFolder(TEST_DIR, transforms = evaluate_tfms)
+test_set = datasets.ImageFolder(TEST_DIR, transforms = evaluate_tfms)
 
 #Random 80/20 split
 val_ratio = 0.2
