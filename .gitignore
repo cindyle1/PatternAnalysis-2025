@@ -1,0 +1,8 @@
+
+# big trained weights
+*.pt
+outputs_task8/
+
+
+# ignore heavy outputs
+recognition/classify_alzheimers_s4749017/outputs_task8/
