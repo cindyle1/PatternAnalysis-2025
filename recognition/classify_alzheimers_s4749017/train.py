@@ -40,7 +40,6 @@ def evaluate(model, loader, device):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data_dir", required=True)
-    ap.add_argument("--out_dir", default="./outputs_task8")
     ap.add_argument("--epochs", type=int, default=20)
     ap.add_argument("--batch_size", type=int, default=8)
     ap.add_argument("--lr", type=float, default=1e-4)
@@ -49,7 +48,6 @@ def main():
     ap.add_argument("--augment", action="store_true")
     args = ap.parse_args()
 
-    os.makedirs(args.out_dir, exist_ok=True)
     device = pick_device()
     print("Device:", device)
 
