@@ -7,3 +7,8 @@ outputs_task8/
 # ignore heavy outputs
 recognition/classify_alzheimers_s4749017/outputs_task8/
 recognition/classify_alzheimers_s4749017/outputs_task8/
+
+# Ignore heavy and auto-generated folders
+recognition/classify_alzheimers_s4749017/outputs_task8/
+__pycache__/
+*/__pycache__/
