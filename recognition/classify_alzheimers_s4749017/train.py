@@ -71,6 +71,7 @@ def main():
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
     best_acc = 0.0
+    best_state = None
     for epoch in range(1, args.epochs+1):
         model.train()
         loss_sum = 0.0
@@ -86,16 +87,16 @@ def main():
         print(f"Epoch {epoch}: loss={loss_sum/len(train_loader):.3f}  val_acc={val_acc*100:.2f}%")
         if val_acc > best_acc:
             best_acc = val_acc
+            #keep in cpu instead of saving locally
+            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+
         
 
     print("Best val acc:", best_acc)
 
-    state = torch.load(
-        os.path.join(args.out_dir, "best_model.pt"),
-        map_location=device,
-        weights_only=True,   # safer & removes the warning
-    )
-    model.load_state_dict(state)
+    if best_state is not None:
+        model.load_state_dict(best_state)
+        model.to(device) 
 
     test_acc = evaluate(model, test_loader, device)
     print("Test acc:", test_acc)
