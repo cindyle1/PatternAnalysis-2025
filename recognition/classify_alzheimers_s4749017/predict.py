@@ -1,34 +1,48 @@
-#test accuracies and confusion matrix for performance
+import os, argparse, torch, numpy as np
+from torch.utils.data import DataLoader
+from dataset import ADNIDataset, list_files
 
-import torch, numpy as np
-from sklearn.metrics import confusion_matrix, classification_report
-from modules import ConvNeXt
-from dataset import test_loader
+# keep modules.py unchanged; import your class name here
+try:
+    from modules import ConvNeXt as Net  
+except Exception:
+    try:
+        from modules import ConvNeXtTiny2Class as Net
+    except Exception:
+        from modules import Model as Net
 
-MODEL_PATH = "./models/convnext_tiny_best.pth"
-device = "cuda" if torch.cuda.is_available() else "cpu"
+def pick_device():
+    if torch.cuda.is_available(): return "cuda"
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available(): return "mps"
+    return "cpu"
 
-
+@torch.no_grad()
 def main():
-    model = ConvNeXt().to(device)
-    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
-    model.eval()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--data_dir", required=True)
+    ap.add_argument("--ckpt", required=True)
+    ap.add_argument("--batch_size", type=int, default=8)
+    ap.add_argument("--image_size", type=int, default=224)
+    args = ap.parse_args()
 
-    ys, preds = [], []
-    with torch.no_grad():
-        for x, y in test_loader:
-            x = x.to(device)
-            p = model(x).argmax(1).cpu().numpy()
-            preds.append(p)
-            ys.append(y.numpy())
+    device = pick_device()
+    items = list_files(args.data_dir)
+    ds = ADNIDataset(items, image_size=args.image_size, augment=False)
+    dl = DataLoader(ds, batch_size=args.batch_size, shuffle=False)
 
-    y_true = np.concatenate(ys)
-    y_pred = np.concatenate(preds)
-    acc = (y_true == y_pred).mean()
-    cm = confusion_matrix(y_true, y_pred)
-    print(f"Accuracy: {acc:.4f}")
-    print("Confusion matrix:\n", cm)
-    print("\nClassification report:\n", classification_report(y_true, y_pred, target_names=["NC","AD"], digits=3))
+    model = Net(pretrained=False).to(device).eval()
+    model.load_state_dict(torch.load(args.ckpt, map_location=device))
+
+    probs = []
+    for x, _ in dl:
+        x = x.to(device)
+        logits = model(x)
+        p1 = torch.softmax(logits, dim=1)[:,1].cpu().numpy()
+        probs.extend(p1.tolist())
+
+    print("Predictions (probability of AD):")
+    for (path, _), p in list(zip(items, probs))[:10]:
+        print(f"{os.path.basename(path)} -> {p:.3f}")
 
 if __name__ == "__main__":
     main()
