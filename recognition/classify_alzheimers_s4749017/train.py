@@ -86,19 +86,16 @@ def main():
         print(f"Epoch {epoch}: loss={loss_sum/len(train_loader):.3f}  val_acc={val_acc*100:.2f}%")
         if val_acc > best_acc:
             best_acc = val_acc
-            torch.save(model.state_dict(), os.path.join(args.out_dir, "best_model.pt"))
         
 
     print("Best val acc:", best_acc)
 
-    # --- FIXED LOAD BLOCK ---
     state = torch.load(
         os.path.join(args.out_dir, "best_model.pt"),
         map_location=device,
         weights_only=True,   # safer & removes the warning
     )
     model.load_state_dict(state)
-    # --- END FIX ---
 
     test_acc = evaluate(model, test_loader, device)
     print("Test acc:", test_acc)
