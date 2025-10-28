@@ -10,7 +10,8 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
 import torchvision.transforms as T
 
-CLASS_TO_IDX = {"CN": 0, "AD": 1}
+CLASS_TO_IDX = {"NC": 0, "AD": 1}
+
 
 def list_files(root: str) -> List[Tuple[str, int]]:
     items = []

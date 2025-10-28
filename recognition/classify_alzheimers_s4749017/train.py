@@ -7,9 +7,10 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from dataset import ADNIDataset, make_split
+from dataset import ADNIDataset, make_split, list_files
 
-# ---- Keep modules.py the same; just import YOUR class name here ----
+DATA_ROOT = "/content/drive/MyDrive/AD_NC"
+
 try:
     from modules import ConvNeXt as Net  # ← change this one line if your class is named differently
 except Exception:
@@ -51,7 +52,12 @@ def main():
     device = pick_device()
     print("Device:", device)
 
-    tr, va, te = make_split(args.data_dir, seed=42)
+    train_dir = os.path.join(args.data_dir, "train")
+    test_dir  = os.path.join(args.data_dir, "test")
+
+    tr, va, _ = make_split(train_dir, test_size=0.0, val_size=0.2, seed=42)
+    te = list_files(test_dir)
+
     train_ds = ADNIDataset(tr, image_size=args.image_size, augment=args.augment)
     val_ds   = ADNIDataset(va, image_size=args.image_size)
     test_ds  = ADNIDataset(te, image_size=args.image_size)
