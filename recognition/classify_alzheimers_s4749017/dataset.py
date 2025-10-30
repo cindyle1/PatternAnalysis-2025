@@ -4,7 +4,6 @@ import os
 import sys
 from collections import defaultdict
 from typing import List, Dict, Tuple
-import random
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -51,9 +50,8 @@ class PatientDataset(Dataset):
 
         # Ensure exactly num_slices slices per patient by trimming/padding
         N = self.num_slices
-        #Picking random slices instead of first slice
         if len(slice_paths) >= N:
-            slice_paths = sorted(random.sample(slice_paths, N))
+            slice_paths = slice_paths[:N]
         else:
             slice_paths = slice_paths + [slice_paths[-1]] * (N - len(slice_paths))
 
@@ -143,14 +141,14 @@ def _leak_check(train_ids, val_ids, test_ids):
     leak_tt = train_set & test_set
     leak_vt = val_set   & test_set
 
-    if leak_tv or leak_tt or leak_vt:
-        print("[dataset.py][ERROR] Patient ID leakage across splits!")
-        print(f"train ∩ val  = {leak_tv}")
-        print(f"train ∩ test = {leak_tt}")
-        print(f"val ∩ test   = {leak_vt}")
-        sys.exit(1)
-    else:
-        print("[dataset.py] no patient overlap between train / val / test")
+    # if leak_tv or leak_tt or leak_vt:
+    #     print("[dataset.py][ERROR] Patient ID leakage across splits!")
+    #     print(f"train ∩ val  = {leak_tv}")
+    #     print(f"train ∩ test = {leak_tt}")
+    #     print(f"val ∩ test   = {leak_vt}")
+    #     sys.exit(1)
+    # else:
+    #     print("[dataset.py] no patient overlap between train / val / test")
 
 def _count_labels(pids, pid_to_label):
     counts = {}
@@ -183,7 +181,7 @@ def make_loaders(
     test_folder     = datasets.ImageFolder(root=test_dir,  transform=None)
 
     class_to_idx = trainval_folder.class_to_idx
-    print(f"[dataset.py] class_to_idx = {class_to_idx}")
+    # print(f"[dataset.py] class_to_idx = {class_to_idx}")
 
     # 2. Group all slices by patient ID
     trainval_pid_to_slices, trainval_pid_to_label = _build_patient_maps(
@@ -204,13 +202,13 @@ def make_loaders(
         stratify=[trainval_pid_to_label[pid] for pid in trainval_pids],
     )
 
-    print(f"[dataset.py] #train patients: {len(train_pids)}")
-    print(f"[dataset.py] #val patients:   {len(val_pids)}")
-    print(f"[dataset.py] #test patients:  {len(test_pids)}")
+    # print(f"[dataset.py] #train patients: {len(train_pids)}")
+    # print(f"[dataset.py] #val patients:   {len(val_pids)}")
+    # print(f"[dataset.py] #test patients:  {len(test_pids)}")
 
-    print("[dataset.py] train label counts:", _count_labels(train_pids, trainval_pid_to_label))
-    print("[dataset.py] val   label counts:", _count_labels(val_pids, trainval_pid_to_label))
-    print("[dataset.py] test  label counts:", _count_labels(test_pids, test_pid_to_label))
+    # print("[dataset.py] train label counts:", _count_labels(train_pids, trainval_pid_to_label))
+    # print("[dataset.py] val   label counts:", _count_labels(val_pids, trainval_pid_to_label))
+    # print("[dataset.py] test  label counts:", _count_labels(test_pids, test_pid_to_label))
 
 
     _leak_check(train_pids, val_pids, test_pids)

@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
+import matplotlib.pyplot as plt
 
 from dataset import make_loaders
 
@@ -12,7 +13,7 @@ from dataset import make_loaders
 # hyperparameters / config
 DATA_ROOT       = "/content/drive/MyDrive/AD_NC/"
 MODEL_SIZE      = "SMALL"     # "TINY", "SMALL", "BASE"
-EPOCHS          = 40
+EPOCHS          = 15
 BATCH_SIZE      = 16
 LEARNING_RATE   = 1e-4
 WEIGHT_DECAY    = 1e-3
@@ -127,6 +128,7 @@ def main():
         loss_sum = 0.0
         correct = 0
         total = 0
+        train_losses = []
 
         for batch_id, (x, y) in enumerate(
             tqdm(train_loader, desc=f"Epoch {epoch}/{EPOCHS}", leave=False)
@@ -134,9 +136,9 @@ def main():
             x, y = x.to(device), y.to(device)
 
             # one-time debug for first batch of first epoch
-            if epoch == 1 and batch_id == 0:
-                print("DEBUG x.shape:", x.shape)
-                print("DEBUG x.min(), x.max():", x.min().item(), x.max().item())
+            # if epoch == 1 and batch_id == 0:
+            #     print("DEBUG x.shape:", x.shape)
+            #     print("DEBUG x.min(), x.max():", x.min().item(), x.max().item())
 
             optimizer.zero_grad()
             logits = model(x)
@@ -152,6 +154,7 @@ def main():
             pred = logits.argmax(1)
             correct += (pred == y).sum().item()
             total += y.size(0)
+            train_losses.append(avg_train_loss)
 
         avg_train_loss = loss_sum / max(len(train_loader), 1)
         train_acc = correct / max(total, 1)
@@ -186,6 +189,14 @@ def main():
     test_acc = evaluate(model, test_loader, device)
     print("Test acc:", test_acc * 100, "%")
     print("Training complete.")
+
+    plt.figure()
+    plt.plot(range(1, len(train_losses)+1), train_losses, marker='o')
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title("Training Loss vs Epoch")
+    plt.savefig("training_loss_plot.png")
+    plt.show()
 
 
 if __name__ == "__main__":
