@@ -12,3 +12,8 @@ recognition/classify_alzheimers_s4749017/outputs_task8/
 recognition/classify_alzheimers_s4749017/outputs_task8/
 __pycache__/
 */__pycache__/
+
+
+# Ignore macOS system files
+.DS_Store
+
