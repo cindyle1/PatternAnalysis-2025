@@ -4,6 +4,7 @@ import os
 import sys
 from collections import defaultdict
 from typing import List, Dict, Tuple
+import random
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -50,8 +51,9 @@ class PatientDataset(Dataset):
 
         # Ensure exactly num_slices slices per patient by trimming/padding
         N = self.num_slices
+        #Picking random slices instead of first slice
         if len(slice_paths) >= N:
-            slice_paths = slice_paths[:N]
+            slice_paths = sorted(random.sample(slice_paths, N))
         else:
             slice_paths = slice_paths + [slice_paths[-1]] * (N - len(slice_paths))
 
