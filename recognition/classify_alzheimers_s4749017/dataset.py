@@ -11,9 +11,8 @@ from torchvision import datasets, transforms
 from sklearn.model_selection import train_test_split
 from PIL import Image
 
-# --------------------------
+
 # Inline parameters / defaults
-# --------------------------
 RANDOM_STATE     = 42
 NORMALISATION_M  = 0.1114
 NORMALISATION_SD = 0.2184
@@ -101,6 +100,7 @@ def _make_transforms(image_size: int, augment: bool):
     eval_tfm = transforms.Compose([
         transforms.Resize((image_size, image_size)),
         transforms.Grayscale(num_output_channels=1),
+        transforms.RandomHorizontalFlip(p=0.5),
         transforms.ToTensor(),
         transforms.Normalize(mean=norm_mean, std=norm_std),
     ])
@@ -148,8 +148,14 @@ def _leak_check(train_ids, val_ids, test_ids):
         print(f"val ∩ test   = {leak_vt}")
         sys.exit(1)
     else:
-        print("[dataset.py] ✅ no patient overlap between train / val / test")
+        print("[dataset.py] no patient overlap between train / val / test")
 
+def _count_labels(pids, pid_to_label):
+    counts = {}
+    for pid in pids:
+        lab = pid_to_label[pid]
+        counts[lab] = counts.get(lab, 0) + 1
+    return counts
 
 def make_loaders(
     root_dir: str,
@@ -199,6 +205,11 @@ def make_loaders(
     print(f"[dataset.py] #train patients: {len(train_pids)}")
     print(f"[dataset.py] #val patients:   {len(val_pids)}")
     print(f"[dataset.py] #test patients:  {len(test_pids)}")
+
+    print("[dataset.py] train label counts:", _count_labels(train_pids, trainval_pid_to_label))
+    print("[dataset.py] val   label counts:", _count_labels(val_pids, trainval_pid_to_label))
+    print("[dataset.py] test  label counts:", _count_labels(test_pids, test_pid_to_label))
+
 
     _leak_check(train_pids, val_pids, test_pids)
 
