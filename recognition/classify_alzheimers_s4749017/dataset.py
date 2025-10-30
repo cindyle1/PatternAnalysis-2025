@@ -1,120 +1,96 @@
-#confirm data is loaded in correctly
+# dataset.py
 
-#SET UP IMPORTS
-import os, glob
-from typing import List, Tuple
-import numpy as np
-import nibabel as nib
-from PIL import Image
-from sklearn.model_selection import train_test_split
-from torch.utils.data import Dataset
-import torchvision.transforms as T
+import os
+import random
+from torch.utils.data import DataLoader, random_split
+from torchvision import datasets, transforms
 
-CLASS_TO_IDX = {"NC": 0, "AD": 1}
+def make_loaders(
+    root_dir: str,
+    image_size: int = 224,
+    batch_size: int = 16,
+    val_size: float = 0.2,
+    seed: int = 42,
+    augment: bool = True,
+):
 
+    train_dir = os.path.join(root_dir, "train")
+    test_dir  = os.path.join(root_dir, "test")
 
-def list_files(root: str) -> List[Tuple[str, int]]:
-    items = []
-    for cls in CLASS_TO_IDX:
-        cls_dir = os.path.join(root, cls)
-        files = sorted(glob.glob(os.path.join(cls_dir, "*.nii"))) + \
-                sorted(glob.glob(os.path.join(cls_dir, "*.nii.gz")))
-        for f in files:
-            items.append((f, CLASS_TO_IDX[cls]))
-    if not items:
-        raise FileNotFoundError(
-            f"No NIfTI files under {root}. Expected {root}/AD/*.nii.gz and {root}/CN/*.nii.gz"
-        )
-    return items
+    # We'll treat images as 1-channel (grayscale MRI slices),
+    # then normalize with ImageNet-ish stats for 1 channel.
+    imagenet_mean_1c = (0.485,)
+    imagenet_std_1c  = (0.229,)
 
-from PIL import Image
-import numpy as np
-
-def three_views_rgb(vol_xyz: np.ndarray) -> np.ndarray:
-    """
-    vol: (X,Y,Z)
-    Extract mid axial/coronal/sagittal slices, resize them to the same shape
-    using PIL (no cv2), normalize to [0,1], and stack to (3,H,W).
-    """
-    X, Y, Z = vol_xyz.shape
-    axial   = vol_xyz[:, :, Z // 2]
-    coronal = vol_xyz[:, Y // 2, :]
-    sagittal = vol_xyz[X // 2, :, :]
-
-    slices = [axial, coronal, sagittal]
-    slices = [(s - s.min()) / (s.max() - s.min() + 1e-6) for s in slices]
-
-    # Make all slices same size via PIL resize
-    h_max = max(s.shape[0] for s in slices)
-    w_max = max(s.shape[1] for s in slices)
-    resized = []
-    for s in slices:
-        pil = Image.fromarray((s * 255).astype(np.uint8))
-        pil = pil.resize((w_max, h_max), Image.BILINEAR)
-        resized.append(np.array(pil, dtype=np.float32) / 255.0)
-
-    img = np.stack(resized, axis=0)  # (3,H,W)
-    return img
-
-
-
-class ADNIDataset(Dataset):
-    def __init__(self, items: List[Tuple[str,int]], image_size=224, augment=False):
-        self.items = items
-        self.tf = T.Compose([
-            T.Resize((image_size, image_size)),
-            (T.RandomHorizontalFlip(p=0.5) if augment else T.Lambda(lambda x: x)),
-            T.ToTensor(),
-            # ImageNet normalization (as taught for transfer learning)
-            T.Normalize(mean=[0.485, 0.456, 0.406],
-                        std=[0.229, 0.224, 0.225]),
+    if augment:
+        train_tfms = transforms.Compose([
+            transforms.Grayscale(num_output_channels=1),
+            transforms.Resize((image_size, image_size)),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(10),
+            transforms.ToTensor(),
+            transforms.Normalize(imagenet_mean_1c, imagenet_std_1c),
+        ])
+    else:
+        train_tfms = transforms.Compose([
+            transforms.Grayscale(num_output_channels=1),
+            transforms.Resize((image_size, image_size)),
+            transforms.ToTensor(),
+            transforms.Normalize(imagenet_mean_1c, imagenet_std_1c),
         ])
 
-    def __len__(self): return len(self.items)
+    eval_tfms = transforms.Compose([
+        transforms.Grayscale(num_output_channels=1),
+        transforms.Resize((image_size, image_size)),
+        transforms.ToTensor(),
+        transforms.Normalize(imagenet_mean_1c, imagenet_std_1c),
+    ])
 
-    def __getitem__(self, idx):
-        path, y = self.items[idx]
-        vol = nib.load(path).get_fdata().astype(np.float32)
-        vol = np.nan_to_num(vol)
-        img = three_views_rgb(vol)
-        pil = Image.fromarray((np.transpose(img, (1,2,0)) * 255).astype(np.uint8))
-        x = self.tf(pil)
-        if x.shape[0] == 3:           # model expects 1 channel
-            x = x.mean(dim=0, keepdim=True)
-        return x, y
+    # 1. Load the full training dataset (will later be split into train/val)
+    full_train_ds = datasets.ImageFolder(train_dir, transform=train_tfms)
 
+    # 2. Split into train/val (stratified-ish via manual seeding + random_split)
+    n_total = len(full_train_ds)
+    n_val = int(val_size * n_total)
+    n_train = n_total - n_val
 
-def make_split(root: str, test_size=0.2, val_size=0.1, seed=42):
-    """
-    Robust two-step split:
-    1) Train vs Temp where Temp = (val + test) with size (val_size + test_size)
-    2) Split Temp into Val and Test with proportions matching val_size : test_size
-    """
-    items = list_files(root)
-    X = [p for p, _ in items]
-    y = [l for _, l in items]
+    random.seed(seed)
+    # random_split uses torch.Generator for reproducibility, so we set that too
+    import torch
+    g = torch.Generator().manual_seed(seed)
+    train_ds, val_ds = random_split(full_train_ds, [n_train, n_val], generator=g)
 
-    # Step 1: carve out a combined temp set (val+test)
-    temp_size = val_size + test_size
-    from sklearn.model_selection import train_test_split
-    X_train, X_temp, y_train, y_temp = train_test_split(
-        X, y, test_size=temp_size, stratify=y, random_state=seed
+    # Make sure validation does NOT get augmentation
+    # We can safely override the underlying dataset transform for the val subset.
+    val_ds.dataset.transform = eval_tfms
+
+    # 3. Test dataset (no augmentation)
+    test_ds = datasets.ImageFolder(test_dir, transform=eval_tfms)
+
+    # 4. DataLoaders
+    # num_workers=2 is fine on Colab; if you get DataLoader worker errors on Windows, set it to 0.
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=2,
+        pin_memory=True,
     )
 
-    # Step 2: split temp into val and test with the right ratio
-    # (avoid tiny val set that breaks stratification)
-    if temp_size == 0:
-        X_val, y_val = [], []
-        X_test, y_test = [], []
-    else:
-        # fraction of temp that should go to VALIDATION
-        val_frac_within_temp = val_size / temp_size
-        X_val, X_test, y_val, y_test = train_test_split(
-            X_temp, y_temp,
-            test_size=(1.0 - val_frac_within_temp),  # keep val_frac for val
-            stratify=y_temp,
-            random_state=seed
-        )
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=2,
+        pin_memory=True,
+    )
 
-    pack = lambda xs, ys: list(zip(xs, ys))
-    return pack(X_train, y_train), pack(X_val, y_val), pack(X_test, y_test)
+    test_loader = DataLoader(
+        test_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=2,
+        pin_memory=True,
+    )
+
+    return train_loader, val_loader, test_loader
