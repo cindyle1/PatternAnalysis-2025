@@ -5,25 +5,26 @@ from tqdm import tqdm
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
 
-from dataset ximport ADNIDataset, make_split, list_files
+from dataset import make_loaders 
 
-DATA_ROOT = "/content/drive/MyDrive/AD_NC"
-
+# Try to import your model class
 try:
-    from modules import ConvNeXt as Net  # ← change this one line if your class is named differently
+    from modules import ConvNeXt as Net
 except Exception:
-    # gentle fallbacks if your class has another name
     try:
         from modules import ConvNeXtTiny2Class as Net
     except Exception:
-        from modules import Model as Net  # last resort if you named it 'Model'
+        from modules import Model as Net
+
 
 def pick_device():
-    if torch.cuda.is_available(): return "cuda"
-    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available(): return "mps"
+    if torch.cuda.is_available():
+        return "cuda"
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return "mps"
     return "cpu"
+
 
 @torch.no_grad()
 def evaluate(model, loader, device):
@@ -40,70 +41,87 @@ def evaluate(model, loader, device):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data_dir", required=True)
+    ap.add_argument("--data_dir", required=True,
+                    help="Root dir that contains train/ and test/ subfolders")
     ap.add_argument("--epochs", type=int, default=20)
-    ap.add_argument("--batch_size", type=int, default=8)
+    ap.add_argument("--batch_size", type=int, default=16)
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--image_size", type=int, default=224)
     ap.add_argument("--pretrained", action="store_true")
     ap.add_argument("--augment", action="store_true")
+    ap.add_argument("--out_dir", default="outputs",
+                    help="Where to save best_model.pth")
     args = ap.parse_args()
 
     device = pick_device()
     print("Device:", device)
 
-    train_dir = os.path.join(args.data_dir, "train")
-    test_dir  = os.path.join(args.data_dir, "test")
+    # Create loaders from your folder structure
+    train_loader, val_loader, test_loader = make_loaders(
+        root_dir=args.data_dir,
+        image_size=args.image_size,
+        batch_size=args.batch_size,
+        val_size=0.2,
+        seed=42,
+        augment=args.augment,
+    )
 
-    tr, va, _ = make_split(train_dir, test_size=0.0, val_size=0.2, seed=42)
-    te = list_files(test_dir)
-
-    train_ds = ADNIDataset(tr, image_size=args.image_size, augment=args.augment)
-    val_ds   = ADNIDataset(va, image_size=args.image_size)
-    test_ds  = ADNIDataset(te, image_size=args.image_size)
-
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,  num_workers=0)
-    val_loader   = DataLoader(val_ds,   batch_size=args.batch_size, shuffle=False, num_workers=0)
-    test_loader  = DataLoader(test_ds,  batch_size=args.batch_size, shuffle=False, num_workers=0)
-
+    # Build model
     try:
         model = Net(pretrained=args.pretrained).to(device)
     except TypeError:
+        # fallback if Net() doesn't accept pretrained=
         model = Net().to(device)
-        
+
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
     best_acc = 0.0
     best_state = None
-    for epoch in range(1, args.epochs+1):
+
+    for epoch in range(1, args.epochs + 1):
         model.train()
         loss_sum = 0.0
-        for x, y in tqdm(train_loader, desc=f"Epoch {epoch}/{args.epochs}", leave=False):
+
+        for x, y in tqdm(train_loader,
+                         desc=f"Epoch {epoch}/{args.epochs}",
+                         leave=False):
             x, y = x.to(device), y.to(device)
+
             optimizer.zero_grad()
             logits = model(x)
             loss = criterion(logits, y)
             loss.backward()
             optimizer.step()
+
             loss_sum += loss.item()
+
         val_acc = evaluate(model, val_loader, device)
-        print(f"Epoch {epoch}: loss={loss_sum/len(train_loader):.3f}  val_acc={val_acc*100:.2f}%")
+        avg_loss = loss_sum / max(len(train_loader), 1)
+        print(f"Epoch {epoch}: loss={avg_loss:.3f}  val_acc={val_acc*100:.2f}%")
+
+        # track best weights
         if val_acc > best_acc:
             best_acc = val_acc
-            #keep in cpu instead of saving locally
-            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+            best_state = {k: v.detach().cpu().clone()
+                          for k, v in model.state_dict().items()}
 
-        
+    print("Best val acc:", best_acc * 100, "%")
 
-    print("Best val acc:", best_acc)
-
+    # Load best weights back into the model before final test
     if best_state is not None:
         model.load_state_dict(best_state)
-        model.to(device) 
+        model.to(device)
 
+    # Final test accuracy
     test_acc = evaluate(model, test_loader, device)
-    print("Test acc:", test_acc)
+    print("Test acc:", test_acc * 100, "%")
+
+    # Save best checkpoint so predict.py can load it later
+    os.makedirs(args.out_dir, exist_ok=True)
+    ckpt_path = os.path.join(args.out_dir, "best_model.pth")
+    torch.save(model.state_dict(), ckpt_path)
+    print(f"Saved best model to {ckpt_path}")
 
 
 if __name__ == "__main__":
