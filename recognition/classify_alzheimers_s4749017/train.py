@@ -17,20 +17,20 @@ DATA_ROOT = "/content/drive/MyDrive/AD_NC/"
 MODEL_SIZE = "SMALL"          # "SMALL", "TINY", "BASE"
 
 BATCH_SIZE     = 16
-LEARNING_RATE  = 1e-4
+LEARNING_RATE  = 3e-4
 WEIGHT_DECAY   = 1e-3
-EPOCHS         = 15
+EPOCHS         = 40
 COMPILE        = True
 
 MODEL_CONFIG_TINY = {
-    "in_chans": 1,
+    "in_chans": 20,
     "num_classes": 2,
     "depths": [3, 3, 9, 3],
     "dims": [96, 192, 384, 768],
 }
 
 MODEL_CONFIG_SMALL = {
-    "in_chans": 1,
+    "in_chans": 20,
     "num_classes": 2,
     "depths": [3, 3, 27, 3],
     "dims": [96, 192, 384, 768],
@@ -38,7 +38,7 @@ MODEL_CONFIG_SMALL = {
 }
 
 MODEL_CONFIG_BASE = {
-    "in_chans": 1,
+    "in_chans": 20,
     "num_classes": 2,
     "depths": [3, 3, 27, 3],
     "dims": [128, 256, 512, 1024],

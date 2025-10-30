@@ -2,7 +2,6 @@
 
 import os
 import sys
-import random
 from collections import defaultdict
 from typing import List, Dict, Tuple
 
@@ -13,35 +12,34 @@ from sklearn.model_selection import train_test_split
 from PIL import Image
 
 # --------------------------
-# Inline "parameters"
+# Inline parameters / defaults
 # --------------------------
-DATA_ROOT        = "./data/AD_NC/"   # you can change this when you run train.py if needed
 RANDOM_STATE     = 42
 NORMALISATION_M  = 0.1114
 NORMALISATION_SD = 0.2184
-CHANNELS         = 1         # per slice (grayscale)
-IMAGE_SIZE       = 224       # may get overridden in train.py if you choose BASE
-VAL_FRACTION     = 0.2       # % of train used as validation
+IMAGE_SIZE       = 224   # BASE model can bump this to 384
+
 
 class PatientDataset(Dataset):
     """
-    One item = one patient.
-    We return ONE "representative" slice for that patient as a (1,H,W) tensor.
+    Returns one tensor per patient:
+      x: (20, H, W)  <-- 20 slices stacked as channels
+      y: int label
+    This matches a ConvNeXt where in_chans=20.
     """
-
     def __init__(
         self,
         patient_ids: List[str],
         pid_to_slices: Dict[str, List[str]],
         pid_to_label: Dict[str, int],
         transform: transforms.Compose,
-        representative_only: bool = True,
+        num_slices: int = 20,
     ):
         self.patient_ids = patient_ids
         self.pid_to_slices = pid_to_slices
         self.pid_to_label = pid_to_label
         self.transform = transform
-        self.representative_only = representative_only
+        self.num_slices = num_slices
 
     def __len__(self):
         return len(self.patient_ids)
@@ -51,37 +49,41 @@ class PatientDataset(Dataset):
         slice_paths = self.pid_to_slices[pid]
         label = self.pid_to_label[pid]
 
-        if self.representative_only:
-            mid_idx = len(slice_paths) // 2
-            img = Image.open(slice_paths[mid_idx]).convert("L")  # grayscale
-            x = self.transform(img)  # (1,H,W)
-            return x, label
+        # Ensure exactly num_slices slices per patient by trimming/padding
+        N = self.num_slices
+        if len(slice_paths) >= N:
+            slice_paths = slice_paths[:N]
         else:
-            # (not used right now, but kept for completeness)
-            slices = []
-            for sp in slice_paths:
-                img = Image.open(sp).convert("L")
-                x = self.transform(img)  # (1,H,W)
-                x = x.squeeze(0)         # -> (H,W)
-                slices.append(x)
-            volume = torch.stack(slices, dim=0)  # (num_slices,H,W)
-            return volume, label
+            slice_paths = slice_paths + [slice_paths[-1]] * (N - len(slice_paths))
+
+        slices = []
+        for path in slice_paths:
+            img = Image.open(path).convert("L")  # grayscale
+            x = self.transform(img)             # (1, H, W)
+            slices.append(x)
+
+        # Stack along channel dim -> (N, H, W)
+        volume = torch.cat(slices, dim=0)
+        return volume, label
 
 
 def _build_patient_maps(samples: List[Tuple[str, int]]):
     """
-    Turn ImageFolder file list into patient_id -> [slice_paths]
-    Assumes filenames like "<patientID>_something.png"
+    Converts a flat list of (image_path, class_idx) pairs into:
+      - pid_to_slices: { patient_id: [slice_path1, slice_path2, ...] }
+      - pid_to_label:  { patient_id: class_idx }
+    Assumes filenames look like "<patientID>_whatever.png"
     """
     pid_to_slices = defaultdict(list)
     pid_to_label = {}
 
     for path, label in samples:
         fname = os.path.basename(path)
-        pid = fname.split("_")[0]  # <- adjust this rule if naming differs
+        pid = fname.split("_")[0]  # <- adjust if your naming scheme differs
         pid_to_slices[pid].append(path)
         pid_to_label[pid] = label
 
+    # keep slices in a stable order
     for pid in pid_to_slices:
         pid_to_slices[pid] = sorted(pid_to_slices[pid])
 
@@ -90,10 +92,9 @@ def _build_patient_maps(samples: List[Tuple[str, int]]):
 
 def _make_transforms(image_size: int, augment: bool):
     """
-    image_size: resize target (224 normally / 384 for BASE config)
-    NORMALISATION_M, NORMALISATION_SD: given stats for normalisation
+    Returns (train_transform, eval_transform).
+    Normalises using provided dataset stats so values end ~[-1,1].
     """
-
     norm_mean = [NORMALISATION_M]
     norm_std  = [NORMALISATION_SD]
 
@@ -111,11 +112,11 @@ def _make_transforms(image_size: int, augment: bool):
             transforms.RandomAffine(
                 degrees=10,
                 translate=(0.05, 0.05),
-                scale=(0.95, 1.05)
+                scale=(0.95, 1.05),
             ),
             transforms.ColorJitter(
                 brightness=0.15,
-                contrast=0.15
+                contrast=0.15,
             ),
             transforms.ToTensor(),
             transforms.Normalize(mean=norm_mean, std=norm_std),
@@ -160,21 +161,23 @@ def make_loaders(
 ):
     """
     Build train/val/test DataLoaders using patient-level splits.
-    root_dir must contain:
+    Expects:
         root_dir/train/<class>/*.png
         root_dir/test/<class>/*.png
+    where multiple slices from the same patient share the same <patientID>_ prefix.
     """
+
     train_dir = os.path.join(root_dir, "train")
     test_dir  = os.path.join(root_dir, "test")
 
-    # 1. load raw slice paths/labels
+    # 1. Load flat image-level datasets (no transform yet)
     trainval_folder = datasets.ImageFolder(root=train_dir, transform=None)
     test_folder     = datasets.ImageFolder(root=test_dir,  transform=None)
 
     class_to_idx = trainval_folder.class_to_idx
     print(f"[dataset.py] class_to_idx = {class_to_idx}")
 
-    # 2. group slices -> patients
+    # 2. Group all slices by patient ID
     trainval_pid_to_slices, trainval_pid_to_label = _build_patient_maps(
         trainval_folder.samples
     )
@@ -185,7 +188,7 @@ def make_loaders(
     trainval_pids = list(trainval_pid_to_slices.keys())
     test_pids     = list(test_pid_to_slices.keys())
 
-    # 3. stratified split on patient IDs to get train vs val
+    # 3. Split patient IDs into train / val (stratified by label)
     train_pids, val_pids = train_test_split(
         trainval_pids,
         test_size=val_size,
@@ -199,18 +202,16 @@ def make_loaders(
 
     _leak_check(train_pids, val_pids, test_pids)
 
-    # 4. build transforms
+    # 4. Transforms
     train_tfm, eval_tfm = _make_transforms(image_size=image_size, augment=augment)
 
-    # We stick to ONE slice per patient
-    representative_only = True
-
+    # 5. Datasets (each item is a 20-slice volume, shape (20,H,W))
     train_dataset = PatientDataset(
         patient_ids=train_pids,
         pid_to_slices=trainval_pid_to_slices,
         pid_to_label=trainval_pid_to_label,
         transform=train_tfm,
-        representative_only=representative_only,
+        num_slices=20,
     )
 
     val_dataset = PatientDataset(
@@ -218,7 +219,7 @@ def make_loaders(
         pid_to_slices=trainval_pid_to_slices,
         pid_to_label=trainval_pid_to_label,
         transform=eval_tfm,
-        representative_only=representative_only,
+        num_slices=20,
     )
 
     test_dataset = PatientDataset(
@@ -226,10 +227,10 @@ def make_loaders(
         pid_to_slices=test_pid_to_slices,
         pid_to_label=test_pid_to_label,
         transform=eval_tfm,
-        representative_only=representative_only,
+        num_slices=20,
     )
 
-    # 5. data loaders (NO saving / NO new dirs)
+    # 6. DataLoaders
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
