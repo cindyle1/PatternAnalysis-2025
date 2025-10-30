@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from dataset import ADNIDataset, make_split, list_files
+from dataset ximport ADNIDataset, make_split, list_files
 
 DATA_ROOT = "/content/drive/MyDrive/AD_NC"
 
