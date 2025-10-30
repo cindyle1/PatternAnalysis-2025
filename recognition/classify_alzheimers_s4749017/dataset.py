@@ -1,28 +1,32 @@
 # dataset.py
 
 import os
-import random
 import sys
+import random
 from collections import defaultdict
-from typing import Tuple, Dict, List
+from typing import List, Dict, Tuple
+
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets, transforms
 from sklearn.model_selection import train_test_split
 from PIL import Image
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 
+# --------------------------
+# Inline "parameters"
+# --------------------------
+DATA_ROOT        = "./data/AD_NC/"   # you can change this when you run train.py if needed
+RANDOM_STATE     = 42
+NORMALISATION_M  = 0.1114
+NORMALISATION_SD = 0.2184
+CHANNELS         = 1         # per slice (grayscale)
+IMAGE_SIZE       = 224       # may get overridden in train.py if you choose BASE
+VAL_FRACTION     = 0.2       # % of train used as validation
 
 class PatientDataset(Dataset):
     """
-    Each item is one patient.
-    We return ONE representative slice (middle slice) as a 1-channel tensor (1, H, W),
-    so you can feed it to a 2D ConvNeXt-style classifier.
-
-    If you want the full stack of slices per patient instead (3D -> [num_slices, H, W]),
-    set representative_only=False.
+    One item = one patient.
+    We return ONE "representative" slice for that patient as a (1,H,W) tensor.
     """
 
     def __init__(
@@ -48,13 +52,12 @@ class PatientDataset(Dataset):
         label = self.pid_to_label[pid]
 
         if self.representative_only:
-            # --- Variant A: return ONE middle slice ---
             mid_idx = len(slice_paths) // 2
             img = Image.open(slice_paths[mid_idx]).convert("L")  # grayscale
             x = self.transform(img)  # (1,H,W)
             return x, label
         else:
-            # --- Variant B: return ALL slices stacked ---
+            # (not used right now, but kept for completeness)
             slices = []
             for sp in slice_paths:
                 img = Image.open(sp).convert("L")
@@ -67,25 +70,18 @@ class PatientDataset(Dataset):
 
 def _build_patient_maps(samples: List[Tuple[str, int]]):
     """
-    samples: list of (img_path, class_label) from ImageFolder.samples
-
-    Returns:
-        pid_to_slices: dict patient_id -> [sorted slice_paths]
-        pid_to_label:  dict patient_id -> class_label (0 or 1)
-
-    Assumes filename like "<patientID>_something.png".
-    Adjust pid = fname.split('_')[0] if your naming is different.
+    Turn ImageFolder file list into patient_id -> [slice_paths]
+    Assumes filenames like "<patientID>_something.png"
     """
     pid_to_slices = defaultdict(list)
     pid_to_label = {}
 
     for path, label in samples:
         fname = os.path.basename(path)
-        pid = fname.split("_")[0]  # <-- EDIT HERE IF NEEDED
+        pid = fname.split("_")[0]  # <- adjust this rule if naming differs
         pid_to_slices[pid].append(path)
         pid_to_label[pid] = label
 
-    # sort slice paths for consistency / reproducibility
     for pid in pid_to_slices:
         pid_to_slices[pid] = sorted(pid_to_slices[pid])
 
@@ -94,14 +90,12 @@ def _build_patient_maps(samples: List[Tuple[str, int]]):
 
 def _make_transforms(image_size: int, augment: bool):
     """
-    Returns (train_transform, eval_transform).
-
-    We're treating images as 1-channel medical-ish slices.
-    Normalization uses mean=0.5, std=0.5 so pixel range ~[-1,1] after ToTensor().
+    image_size: resize target (224 normally / 384 for BASE config)
+    NORMALISATION_M, NORMALISATION_SD: given stats for normalisation
     """
 
-    norm_mean = [0.5]
-    norm_std = [0.5]
+    norm_mean = [NORMALISATION_M]
+    norm_std  = [NORMALISATION_SD]
 
     eval_tfm = transforms.Compose([
         transforms.Resize((image_size, image_size)),
@@ -138,17 +132,13 @@ def _make_transforms(image_size: int, augment: bool):
 
 
 def _leak_check(train_ids, val_ids, test_ids):
-    """
-    Make sure the same patient ID isn't in multiple splits.
-    If there is leakage, we hard-stop, because that would inflate val/test accuracy.
-    """
     train_set = set(train_ids)
-    val_set = set(val_ids)
-    test_set = set(test_ids)
+    val_set   = set(val_ids)
+    test_set  = set(test_ids)
 
     leak_tv = train_set & val_set
     leak_tt = train_set & test_set
-    leak_vt = val_set & test_set
+    leak_vt = val_set   & test_set
 
     if leak_tv or leak_tt or leak_vt:
         print("[dataset.py][ERROR] Patient ID leakage across splits!")
@@ -162,30 +152,29 @@ def _leak_check(train_ids, val_ids, test_ids):
 
 def make_loaders(
     root_dir: str,
-    image_size: int = 224,
-    batch_size: int = 16,
-    val_size: float = 0.2,
-    seed: int = 42,
-    augment: bool = True,
+    image_size: int,
+    batch_size: int,
+    val_size: float,
+    seed: int,
+    augment: bool,
 ):
     """
-    Creates train/val/test DataLoaders where:
-      - train and val come from patients in root_dir/train
-      - test comes from patients in root_dir/test
-    Splitting is patient-level, not slice-level.
+    Build train/val/test DataLoaders using patient-level splits.
+    root_dir must contain:
+        root_dir/train/<class>/*.png
+        root_dir/test/<class>/*.png
     """
-
     train_dir = os.path.join(root_dir, "train")
     test_dir  = os.path.join(root_dir, "test")
 
-    # 1. Read raw images using ImageFolder just to get (path, class_index)
+    # 1. load raw slice paths/labels
     trainval_folder = datasets.ImageFolder(root=train_dir, transform=None)
     test_folder     = datasets.ImageFolder(root=test_dir,  transform=None)
 
     class_to_idx = trainval_folder.class_to_idx
     print(f"[dataset.py] class_to_idx = {class_to_idx}")
 
-    # 2. Group slices by patient ID for train/val and test separately
+    # 2. group slices -> patients
     trainval_pid_to_slices, trainval_pid_to_label = _build_patient_maps(
         trainval_folder.samples
     )
@@ -193,11 +182,10 @@ def make_loaders(
         test_folder.samples
     )
 
-    # Patient IDs
     trainval_pids = list(trainval_pid_to_slices.keys())
     test_pids     = list(test_pid_to_slices.keys())
 
-    # 3. Split train vs val by patient, stratified by label
+    # 3. stratified split on patient IDs to get train vs val
     train_pids, val_pids = train_test_split(
         trainval_pids,
         test_size=val_size,
@@ -209,13 +197,12 @@ def make_loaders(
     print(f"[dataset.py] #val patients:   {len(val_pids)}")
     print(f"[dataset.py] #test patients:  {len(test_pids)}")
 
-    # 4. Sanity check for patient leakage
     _leak_check(train_pids, val_pids, test_pids)
 
-    # 5. Build transforms
+    # 4. build transforms
     train_tfm, eval_tfm = _make_transforms(image_size=image_size, augment=augment)
 
-    # Only take one representative slice per patient when we build each item
+    # We stick to ONE slice per patient
     representative_only = True
 
     train_dataset = PatientDataset(
@@ -242,8 +229,7 @@ def make_loaders(
         representative_only=representative_only,
     )
 
-    # 6. DataLoaders
-    # num_workers=2 is good on Colab GPU. If you get worker crashes, drop it to 0.
+    # 5. data loaders (NO saving / NO new dirs)
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
@@ -251,7 +237,6 @@ def make_loaders(
         num_workers=2,
         pin_memory=True,
     )
-
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
@@ -259,7 +244,6 @@ def make_loaders(
         num_workers=2,
         pin_memory=True,
     )
-
     test_loader = DataLoader(
         test_dataset,
         batch_size=batch_size,

@@ -1,4 +1,4 @@
-import os, argparse
+import os
 from sklearn.metrics import accuracy_score
 from tqdm import tqdm
 import torch
@@ -7,7 +7,59 @@ import torch.optim as optim
 
 from dataset import make_loaders
 
-# --- Model imports ---
+# --------------------------
+# Inline "parameters" (no external file)
+# --------------------------
+
+# DATA_ROOT = "./data/AD_NC/"   
+DATA_ROOT = "/content/drive/MyDrive/AD_NC/"
+
+MODEL_SIZE = "SMALL"          # "SMALL", "TINY", "BASE"
+
+BATCH_SIZE     = 16
+LEARNING_RATE  = 1e-4
+WEIGHT_DECAY   = 1e-3
+EPOCHS         = 15
+COMPILE        = True
+
+MODEL_CONFIG_TINY = {
+    "in_chans": 1,
+    "num_classes": 2,
+    "depths": [3, 3, 9, 3],
+    "dims": [96, 192, 384, 768],
+}
+
+MODEL_CONFIG_SMALL = {
+    "in_chans": 1,
+    "num_classes": 2,
+    "depths": [3, 3, 27, 3],
+    "dims": [96, 192, 384, 768],
+    "drop_path_rate": 0.2,
+}
+
+MODEL_CONFIG_BASE = {
+    "in_chans": 1,
+    "num_classes": 2,
+    "depths": [3, 3, 27, 3],
+    "dims": [128, 256, 512, 1024],
+}
+
+
+IMAGE_SIZE = 224
+MODEL_CONFIG = MODEL_CONFIG_TINY
+
+if MODEL_SIZE == "TINY":
+    MODEL_CONFIG = MODEL_CONFIG_TINY
+    IMAGE_SIZE = 224
+elif MODEL_SIZE == "SMALL":
+    MODEL_CONFIG = MODEL_CONFIG_SMALL
+    IMAGE_SIZE = 224
+elif MODEL_SIZE == "BASE":
+    MODEL_CONFIG = MODEL_CONFIG_BASE
+    IMAGE_SIZE = 384
+
+
+# --- Model import ---
 try:
     from modules import ConvNeXt as Net
 except Exception:
@@ -39,48 +91,42 @@ def evaluate(model, loader, device):
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--data_dir", required=True,
-                    help="Root dir that contains train/ and test/ subfolders")
-    ap.add_argument("--epochs", type=int, default=10)
-    ap.add_argument("--batch_size", type=int, default=16)
-    ap.add_argument("--lr", type=float, default=1e-4)
-    ap.add_argument("--image_size", type=int, default=224)
-    ap.add_argument("--pretrained", action="store_true")
-    ap.add_argument("--augment", action="store_true")
-    args = ap.parse_args()
-
     device = pick_device()
     print("Device:", device)
 
-    # --- Load data ---
+    # --- Build dataloaders using constants above ---
     train_loader, val_loader, test_loader = make_loaders(
-        root_dir=args.data_dir,
-        image_size=args.image_size,
-        batch_size=args.batch_size,
+        root_dir=DATA_ROOT,
+        image_size=IMAGE_SIZE,
+        batch_size=BATCH_SIZE,
         val_size=0.2,
         seed=42,
-        augment=args.augment,
+        augment=True,
     )
 
-    # --- Initialize model ---
-    try:
-        model = Net(pretrained=args.pretrained).to(device)
-    except TypeError:
-        model = Net().to(device)
+    # --- Build model with chosen MODEL_CONFIG ---
+    model = Net(**MODEL_CONFIG).to(device)
 
+    if COMPILE and hasattr(torch, "compile"):
+        model = torch.compile(model)
+
+    # loss and optimiser
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = optim.AdamW(
+        model.parameters(),
+        lr=LEARNING_RATE,
+        weight_decay=WEIGHT_DECAY
+    )
 
     best_acc = 0.0
     best_state = None
 
     # --- Training loop ---
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(1, EPOCHS + 1):
         model.train()
         loss_sum = 0.0
 
-        for x, y in tqdm(train_loader, desc=f"Epoch {epoch}/{args.epochs}", leave=False):
+        for x, y in tqdm(train_loader, desc=f"Epoch {epoch}/{EPOCHS}", leave=False):
             x, y = x.to(device), y.to(device)
             optimizer.zero_grad()
             logits = model(x)
@@ -99,16 +145,13 @@ def main():
 
     print("Best val acc:", best_acc * 100, "%")
 
-    # --- Load best model and test ---
     if best_state is not None:
         model.load_state_dict(best_state)
         model.to(device)
 
     test_acc = evaluate(model, test_loader, device)
     print("Test acc:", test_acc * 100, "%")
-
-    # ✅ Do NOT save anything
-    print("Training complete.")
+    print("✅ Training complete (no files saved).")
 
 
 if __name__ == "__main__":
