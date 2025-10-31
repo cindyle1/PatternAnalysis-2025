@@ -121,6 +121,7 @@ def main():
 
     best_acc = 0.0
     best_state = None
+    train_losses = []
 
     # training loop
     for epoch in range(1, EPOCHS + 1):
@@ -128,7 +129,6 @@ def main():
         loss_sum = 0.0
         correct = 0
         total = 0
-        train_losses = []
 
         for batch_id, (x, y) in enumerate(
             tqdm(train_loader, desc=f"Epoch {epoch}/{EPOCHS}", leave=False)
@@ -154,10 +154,11 @@ def main():
             pred = logits.argmax(1)
             correct += (pred == y).sum().item()
             total += y.size(0)
-            train_losses.append(avg_train_loss)
+        
 
         avg_train_loss = loss_sum / max(len(train_loader), 1)
         train_acc = correct / max(total, 1)
+        train_losses.append(avg_train_loss)
 
         # validation
         val_acc = evaluate(model, val_loader, device)
