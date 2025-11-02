@@ -94,10 +94,16 @@ python train.py
 | Test Accuracy          | **82%**   |
 | Loss Curve             | See plot below |
 
-![Training Loss](final_loss_curve.png)
+![Training Loss](images/final_loss_curve.png)
+
+**Figure 1. Training Loss Graph**
+
 The training loss consistently decreased from ~0.72 to ~0.40 over 15 epochs, indicating that the model is learning at a steady pace. It also suggests that there are no severe instabilities or overfitting. The optimiser and learning rates may also be well tuned due to the smooth downward trend. 
 
-![Training Accuracy](final_accuracy_curve.png)
+![Training Accuracy](images/final_accuracy_curve.png)
+
+**Figure 2. Training Accuracy Graph**
+
 The first few epochs show rapid improvement from 54% tot 75%. It gradually stabilises after 10 epochs. There are minor fluctuations at epoch 7 which could suggest sample differences or batch variations. However, there is a strong upward recovery in later epochs that confirm generalisation. 
 
 ### Overall
