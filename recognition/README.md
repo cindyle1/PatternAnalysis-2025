@@ -2,7 +2,7 @@
 This folder contains the directory for the Classifying Alzheimers Task 8.
 
 ## Overview
-This directory holds the overarching folder for the assignment.
+This directory holds the overarching folder for the assignment. The task is to classify MRI brain images into Alzheimer's Disease (AD) or Normal Control (NC) using ConvNeXt.
 
 ## Dependencies
 Ensure appropriate libraries are installed. 
