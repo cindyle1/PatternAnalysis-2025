@@ -1,8 +1,11 @@
 # Alzheimer's Classification Task 8
 
 This folder contains the code for Task 8: Classifying Alzheimers. 
+
 Student Name: Wing Yan Lee
-Studen ID: s4749017
+
+Student ID: s4749017
+
 
 ## Problem Description
 Brain MRI slices/segments are analysed to classify Alzheimer's Disease (AD) or Normal Control (NC). AD is a progressive neurodegenerative condition that structurally changes the brain and causes a loss of brain tissues [3]. The brain will show changes such as cortical thinning and ventricular enlargement which can show up on MRI scans [3].
