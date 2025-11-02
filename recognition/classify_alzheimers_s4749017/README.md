@@ -69,6 +69,16 @@ These values define the learning rate, epochs, gradient clippings and the model 
 - Plot across epochs to view accuracy and loss
 - Optimal learning rate scheduler
 
+## Dependencies
+Ensure appropriate libraries are installed. 
+1. torch
+2. torchvision
+3. numpy
+4. scikit-learn
+5. matplotlib
+6. Pillow
+7. tqdm
+
 ## How to Run
 ### Local
 python train.py
