@@ -94,7 +94,17 @@ python train.py
 | Test Accuracy          | **82%**   |
 | Loss Curve             | See plot below |
 
+![Training Loss](final_loss_curve.png)
+The training loss consistently decreased from ~0.72 to ~0.40 over 15 epochs, indicating that the model is learning at a steady pace. It also suggests that there are no severe instabilities or overfitting. The optimiser and learning rates may also be well tuned due to the smooth downward trend. 
 
+![Training Accuracy](final_accuracy_curve.png)
+The first few epochs show rapid improvement from 54% tot 75%. It gradually stabilises after 10 epochs. There are minor fluctuations at epoch 7 which could suggest sample differences or batch variations. However, there is a strong upward recovery in later epochs that confirm generalisation. 
+
+### Overall
+The model shows a clear convergence with steadily decreasing loss and validation accuracy near 80%. There is limited overfitting suggested from the gap between traininig and validation metrics. 
+
+### Next Steps
+Fine tuning the pre-training ConvNeXt weights instead of random initialisation to imrpove convergence speed, reduce overfitting and boost accuracy. 
 
 
 ## References
